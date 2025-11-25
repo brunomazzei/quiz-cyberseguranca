@@ -925,13 +925,13 @@
 
             if (currentQ.type === 'intro') {
                 return (
-                    <div className="max-w-md mx-auto h-screen bg-white flex flex-col justify-between">
-                         <div className="p-4 pt-12 flex flex-col items-center text-center">
+                    <div className="max-w-md mx-auto h-screen bg-white flex flex-col relative">
+                         <div className="flex-1 p-4 pt-12 flex flex-col items-center text-center overflow-y-auto">
                             <Icon name={module.icon} size={80} className={`text-${module.color.replace('bg-', '')}-500 mb-6`} />
                             <h2 className="text-2xl font-bold text-gray-800 mb-4">{module.title}</h2>
                             <p className="text-lg text-gray-600">{currentQ.content}</p>
                          </div>
-                         <div className="p-4 border-t">
+                         <div className="p-4 border-t bg-white">
                             <button onClick={() => { playSound('click'); setCurrentLocalIndex(prev => prev + 1); onUpdateProgress(module.id, currentLocalIndex + 1); }} className="w-full bg-green-500 text-white font-bold py-4 rounded-xl btn-3d border-green-700 uppercase tracking-widest">
                                 Começar
                             </button>
