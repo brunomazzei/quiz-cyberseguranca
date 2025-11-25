@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberSenac - Treinamento Gamificado</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel para JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- jsPDF para gerar PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Great+Vibes&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Nunito', sans-serif;
+            background-color: #f7f7f7;
+            user-select: none; /* Evita seleção de texto durante o jogo */
+        }
+        .font-cursive {
+            font-family: 'Great Vibes', cursive;
+        }
+        .btn-3d {
+            transition: all 0.1s;
+            border-bottom-width: 4px;
+        }
+        .btn-3d:active {
+            transform: translateY(2px);
+            border-bottom-width: 0px;
+            margin-bottom: 2px;
+        }
+        .progress-transition {
+            transition: width 0.5s ease-in-out;
+        }
+        .bg-pattern {
+            background-image: radial-gradient(#e5e7eb 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        @keyframes pulse-red {
+            0%, 100% { background-color: #fee2e2; }
+            50% { background-color: #fecaca; }
+        }
+        .animate-pulse-red {
+            animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { jsPDF } = window.jspdf;
+
+        // --- SISTEMA DE ÁUDIO (Sintetizador Web Audio API) ---
+        const playSound = (type) => {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return;
+            
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            const now = ctx.currentTime;
+
+            if (type === 'click') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.1);
+            } else if (type === 'correct') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(600, now);
+                osc.frequency.setValueAtTime(1200, now + 0.1); // Ding!
+                gain.gain.setValueAtTime(0, now);
+                gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                osc.start(now);
+                osc.stop(now + 0.4);
+            } else if (type === 'wrong') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(100, now + 0.3); // Buzz
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            } else if (type === 'win') {
+                // Pequeno arpejo
+                [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                    const osc2 = ctx.createOscillator();
+                    const gain2 = ctx.createGain();
+                    osc2.connect(gain2);
+                    gain2.connect(ctx.destination);
+                    osc2.type = 'square';
+                    osc2.frequency.value = freq;
+                    gain2.gain.setValueAtTime(0.1, now + i*0.1);
+                    gain2.gain.exponentialRampToValueAtTime(0.01, now + i*0.1 + 0.3);
+                    osc2.start(now + i*0.1);
+                    osc2.stop(now + i*0.1 + 0.3);
+                });
+            }
+        };
+
+        // --- DADOS DO CURSO (27 Perguntas Contextualizadas) ---
+        const courseData = [
+            {
+                id: 1,
+                title: "Detetive de Phishing",
+                icon: "mail",
+                color: "bg-green-500",
+                questions: [
+                    // --- CAPÍTULO 1: E-mails e Typosquatting ---
+                    {
+                        type: "intro",
+                        content: "Capítulo 1: O Golpe do E-mail (Phishing). Hackers usam o 'senso de urgência' e erros sutis de grafia (Typosquatting) para enganar seu cérebro. O foco não é invadir o computador, é invadir sua confiança."
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você recebeu um e-mail sobre uma pendência financeira no SENAC. Analise:",
+                        simulationType: "email",
+                        emailData: {
+                            from: "financeiro@sennac.com.br",
+                            subject: "URGENTE: Seu boleto venceu!",
+                            body: "Prezado aluno, seu acesso ao portal será bloqueado em 2h caso não quite o boleto anexo. Clique para pagar com desconto."
+                        },
+                        options: [
+                            { text: "Pagar logo para não perder o acesso", correct: false, feedback: "Você caiu na armadilha da urgência. Nunca tome decisões financeiras sob pressão de tempo." },
+                            { text: "O e-mail é @sennac (2 'n's). É golpe.", correct: true, feedback: "Exato! Essa técnica se chama 'Typosquatting'. Eles registram domínios parecidos visualmente para enganar quem lê rápido." },
+                            { text: "Encaminhar para um amigo verificar", correct: false, feedback: "Não dissemine o risco. Se tem dúvida, contate a secretaria pelo telefone oficial." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Um e-mail supostamente do Coordenador do Curso pede que você baixe a nova grade de horários em anexo (.zip). O que fazer?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Baixo, afinal é do coordenador", correct: false, feedback: "O e-mail do coordenador pode ter sido invadido (Spoofing). Anexos .zip são comuns para esconder vírus." },
+                            { text: "Verifico no Portal do Aluno oficial", correct: true, feedback: "Correto. Sempre valide informações importantes no canal oficial (Portal), nunca confie cegamente no e-mail." },
+                            { text: "Respondo perguntando se é vírus", correct: false, feedback: "Se for um hacker, ele vai mentir. Não interaja com o remetente." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você recebe um e-mail: 'Sua senha do Office 365 expirou. Clique aqui para renovar'. A página pede sua senha antiga.",
+                        simulationType: "none",
+                        options: [
+                            { text: "Preencho rápido para não perder acesso", correct: false, feedback: "Esse é o golpe mais comum para roubar contas. Nunca digite senhas em links que vêm por e-mail." },
+                            { text: "Verifico o link (URL) com atenção", correct: true, feedback: "Sim. Muitas vezes o site é 'senac-support-renova.com' e não o oficial. Na dúvida, abra o navegador e digite o endereço oficial." },
+                            { text: "Respondo o e-mail com a senha", correct: false, feedback: "Nunca envie senhas por e-mail." }
+                        ]
+                    },
+
+                    // --- CAPÍTULO 2: Smishing e Golpes Mobile ---
+                    {
+                        type: "intro",
+                        content: "Capítulo 2: Ataques no Celular (Smishing). Hoje usamos mais o celular que o PC. Os golpistas sabem disso e usam SMS e WhatsApp para prometer vagas de emprego ou prêmios falsos."
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você recebe um SMS: 'SENAC: Vaga de Estágio Aprovada! Salário R$ 2.500. Confirme aqui: bit.ly/vaga-senac'",
+                        simulationType: "sms",
+                        smsData: { sender: "Vagas_RH", message: "Última chamada para a vaga de estágio. Clique: bit.ly/vaga-urgente" },
+                        options: [
+                            { text: "Clicar, preciso de estágio!", correct: false, feedback: "Links encurtados (bit.ly) em SMS de desconhecidos são perigosíssimos. Eles escondem o destino real." },
+                            { text: "Ignorar e checar o Banco de Oportunidades", correct: true, feedback: "Perfeito. Processos seletivos sérios não mandam links genéricos via SMS. Use os canais oficiais." },
+                            { text: "Ligar para o número do SMS", correct: false, feedback: "Não ligue. Eles podem usar engenharia social por telefone para extrair seus dados." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Um suposto 'Suporte do WhatsApp' diz que detectou um erro e pede o código de 6 dígitos que chegou por SMS no seu celular.",
+                        simulationType: "none",
+                        options: [
+                            { text: "Informo o número", correct: false, feedback: "ERRO GRAVE! Com esse número, eles instalam seu WhatsApp no celular DELES e assumem sua conta." },
+                            { text: "Não informo número NENHUM e bloqueio", correct: true, feedback: "Exato! Esse código é a chave da sua conta. Se você entregar, eles roubam seu WhatsApp." },
+                            { text: "Passo o número errado para testar", correct: false, feedback: "Não brinque. Apenas bloqueie e denuncie o contato." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Por que ataques em celular (Mobile) são tão eficazes?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Porque celulares não têm antivírus", correct: false, feedback: "Eles têm proteções, mas o problema é o usuário." },
+                            { text: "Telas pequenas dificultam ver URLs falsas", correct: true, feedback: "Exato. Na pressa e com tela pequena, é difícil checar se o site é 'senac.com' ou 'senac-promo.com'." },
+                            { text: "A internet 5G é mais vulnerável", correct: false, feedback: "A velocidade da conexão não é o fator principal de risco aqui." }
+                        ]
+                    },
+
+                    // --- CAPÍTULO 3: Engenharia Social ---
+                    {
+                        type: "intro",
+                        content: "Capítulo 3: Hackeando Pessoas (Engenharia Social). Às vezes, o elo mais fraco não é o software, é o ser humano. A gentileza e a vontade de ajudar podem ser exploradas."
+                    },
+                    {
+                        type: "quiz",
+                        question: "Seu telefone toca. É o 'Banco' dizendo: 'Compra suspeita de R$ 3.000 aprovada. Para cancelar, confirme seus dados e senha'.",
+                        simulationType: "none",
+                        options: [
+                            { text: "Confirmo para cancelar logo", correct: false, feedback: "Cuidado! Bancos NUNCA ligam pedindo senha ou token para cancelar compras. Desligue na hora." },
+                            { text: "Desligo e olho no app do banco", correct: true, feedback: "A melhor ação. Se não houver compra no app, era golpe. Se houver, resolva pelo chat oficial." },
+                            { text: "Passo a senha, mas errada", correct: false, feedback: "Não continue a conversa. Eles são treinados para te confundir." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Um desconhecido entra no laboratório apressado e diz: 'Preciso imprimir um trabalho urgente, posso usar seu PC rapidinho?'.",
+                        simulationType: "none",
+                        options: [
+                            { text: "Empresto, é solidariedade", correct: false, feedback: "Perigoso! Ele pode plugar um USB com vírus ou acessar seus arquivos enquanto você não olha." },
+                            { text: "Não permito e indico a recepção/monitor", correct: true, feedback: "Correto. Nunca deixe estranhos usarem sua máquina logada, não importa a urgência." },
+                            { text: "Deixo usar, mas fico olhando", correct: false, feedback: "Em segundos ele pode executar um comando malicioso." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Um site promete 'Sorteio de iPhone 15'. Para participar, pede: Nome Completo, CPF, Data de Nascimento e Nome da Mãe.",
+                        simulationType: "none",
+                        options: [
+                            { text: "Preencho, vai que ganho", correct: false, feedback: "Não! Esses dados (CPF + Nome da Mãe) são usados para abrir contas falsas e pedir empréstimos no seu nome." },
+                            { text: "Saio do site imediatamente", correct: true, feedback: "Sempre desconfie de sorteios que pedem dados pessoais excessivos. Eles querem roubar sua identidade." },
+                            { text: "Coloco o CPF de outra pessoa", correct: false, feedback: "Isso também é fraude. Apenas ignore." }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 2,
+                title: "Muralha de Senhas",
+                icon: "lock",
+                color: "bg-blue-500",
+                questions: [
+                    // --- CAPÍTULO 1: Criação e Entropia ---
+                    {
+                        type: "intro",
+                        content: "Capítulo 1: A Matemática da Senha. Senhas curtas como '123456' são quebradas em milissegundos. O segredo é a ENTROPIA: comprimento e imprevisibilidade."
+                    },
+                    {
+                        type: "input_challenge",
+                        question: "Desafio: Crie uma senha que levaria séculos para quebrar (8+ caracteres, Maiúsculas, Números, Símbolos).",
+                        description: "Tente usar uma frase modificada. Ex: Amo-Estudar-No-Senac! (Não use esta)",
+                        validator: (text) => /[A-Z]/.test(text) && /[0-9]/.test(text) && /[!@#$%^&*]/.test(text) && text.length >= 8,
+                        successFeedback: "Excelente! Senhas longas e complexas aumentam exponencialmente o tempo necessário para ataques de força bruta.",
+                        failFeedback: "Ainda fraca. Tente misturar mais elementos. Lembre-se: tamanho importa!"
+                    },
+                    {
+                        type: "quiz",
+                        question: "O que é uma 'Passphrase' e por que ela é recomendada?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Uma senha curta e complexa (ex: X9@b)", correct: false, feedback: "Curta demais. Computadores modernos quebram rápido." },
+                            { text: "Uma frase longa (ex: O-Ceu-Esta-Azul-Hoje!)", correct: true, feedback: "Isso! É fácil para humanos lembrarem, mas difícil para máquinas devido ao comprimento (30+ caracteres)." },
+                            { text: "Usar o próprio nome ao contrário", correct: false, feedback: "Padrões previsíveis são os primeiros a serem testados por hackers." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Qual destes padrões deve ser evitado a todo custo?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Caminhos de teclado (qwerty, asdfgh)", correct: true, feedback: "Sim. Hackers têm dicionários com todas as sequências de teclado. É tão fraco quanto '12345'." },
+                            { text: "Usar espaços na senha", correct: false, feedback: "Espaços são ótimos caracteres especiais, se o sistema permitir." },
+                            { text: "Senhas aleatórias geradas por app", correct: false, feedback: "Essas são as mais fortes." }
+                        ]
+                    },
+
+                    // --- CAPÍTULO 2: Gerenciamento e Vazamentos ---
+                    {
+                        type: "intro",
+                        content: "Capítulo 2: Gerenciamento. Você tem 50 contas online. Se usar a mesma senha para todas, basta um site vazar (ex: uma loja pequena) para que hackers acessem seu e-mail principal."
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você usa a mesma senha no Netflix e no E-mail Corporativo. O Netflix sofre um vazamento. O que acontece?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Nada, são sites diferentes", correct: false, feedback: "Erro fatal. Hackers pegam a senha vazada e testam em TUDO (Credential Stuffing)." },
+                            { text: "Sua conta corporativa está em risco", correct: true, feedback: "Exato. Como a senha é a mesma, eles entrarão no seu e-mail de trabalho usando os dados da Netflix." },
+                            { text: "O Netflix avisa o SENAC", correct: false, feedback: "Eles não se comunicam. A segurança depende de você não reutilizar senhas." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Como memorizar 50 senhas complexas e diferentes?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Anotar em um post-it no monitor", correct: false, feedback: "Isso quebra a segurança física. Qualquer um que passar vê." },
+                            { text: "Usar um Gerenciador de Senhas (Cofre)", correct: true, feedback: "A melhor solução. Você decora UMA senha mestra, e o cofre preenche as outras 49 com segurança." },
+                            { text: "Usar um padrão (Senha1, Senha2...)", correct: false, feedback: "Padrões são fáceis de adivinhar. Se descobrirem uma, descobrem todas." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você está no laboratório do SENAC. O navegador pergunta: 'Salvar senha?'. O que responder?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Sim, para agilizar a próxima aula", correct: false, feedback: "Nunca! O próximo aluno poderá acessar sua conta com um clique." },
+                            { text: "Nunca / Jamais", correct: true, feedback: "Em computadores públicos ou compartilhados, nunca salve credenciais." },
+                            { text: "Só se for o Facebook", correct: false, feedback: "Nenhuma conta deve ser salva em ambiente público." }
+                        ]
+                    },
+
+                    // --- CAPÍTULO 3: Autenticação Multifator (MFA) ---
+                    {
+                        type: "intro",
+                        content: "Capítulo 3: MFA (Múltiplos Fatores). A senha é apenas a primeira barreira. O MFA é o guarda-costas que pede identificação extra. É a medida de segurança mais eficaz hoje."
+                    },
+                    {
+                        type: "quiz",
+                        question: "O que define um Autenticação de DOIS fatores real?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Duas senhas diferentes", correct: false, feedback: "Isso são dois fatores do mesmo tipo (conhecimento)." },
+                            { text: "Algo que você sabe (Senha) + Algo que você tem (Celular)", correct: true, feedback: "Correto! A combinação de tipos diferentes (Saber + Ter) cria a segurança real." },
+                            { text: "Senha + Nome de Usuário", correct: false, feedback: "Isso é apenas identificação e autenticação simples." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Entre SMS e Aplicativo Autenticador (Google/Microsoft), qual é melhor?",
+                        simulationType: "none",
+                        options: [
+                            { text: "SMS é melhor", correct: false, feedback: "SMS pode ser interceptado por clonagem de chip (Sim Swap)." },
+                            { text: "Aplicativo Autenticador é melhor", correct: true, feedback: "Sim. Os códigos são gerados localmente no seu aparelho e não dependem da operadora de telefonia." },
+                            { text: "Ambos são iguais", correct: false, feedback: "Apps são significativamente mais seguros que SMS." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você recebeu uma notificação no celular: 'Tentativa de login. Aprovar?'. Você não está logando. O que fazer?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Aprovar para parar de apitar", correct: false, feedback: "Isso é 'MFA Fatigue'. O hacker manda várias vezes esperando que você canse e aceite. NUNCA aceite se não foi você." },
+                            { text: "Negar e Denunciar", correct: true, feedback: "Alguém tem sua senha! Negue o acesso e troque sua senha imediatamente." },
+                            { text: "Ignorar", correct: false, feedback: "Se você ignorar, eles podem tentar de novo. Negue ativamente." }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 3,
+                title: "Perigo Externo",
+                icon: "usb",
+                color: "bg-purple-500",
+                questions: [
+                    // --- CAPÍTULO 1: Mídias Removíveis (USB) ---
+                    {
+                        type: "intro",
+                        content: "Capítulo 1: O Perigo Físico (USB). Pen drives e HDs externos são vetores clássicos de infecção. Um dispositivo encontrado no estacionamento pode ser uma isca deixada propositalmente."
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você achou um Pen Drive no pátio do SENAC com uma etiqueta 'Folha de Pagamento'. A curiosidade bateu.",
+                        options: [
+                            { text: "Espetar no PC para ver", correct: false, feedback: "A curiosidade matou o gato (e o PC). Malwares podem rodar automaticamente ao conectar." },
+                            { text: "Entregar ao setor de TI ou Achados e Perdidos", correct: true, feedback: "Correto. O TI possui máquinas isoladas (sandbox) para verificar o conteúdo sem risco à rede." },
+                            { text: "Levar para casa e abrir lá", correct: false, feedback: "Você só vai infectar seu computador pessoal. O risco é o mesmo." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Simulação: Você conectou um pen drive de um colega. Qual arquivo é perigoso?",
+                        simulationType: "file_explorer",
+                        files: [
+                            { name: "Trabalho_Final.docx", icon: "file-text", safe: true },
+                            { name: "Férias_Praia.jpg.exe", icon: "image", safe: false }, 
+                            { name: "Apresentacao.pptx", icon: "sheet", safe: true }
+                        ],
+                        options: [
+                            { text: "Trabalho_Final.docx", correct: false, feedback: "Extensão .docx é documento, geralmente seguro." },
+                            { text: "Férias_Praia.jpg.exe", correct: true, feedback: "Cuidado! O Windows esconde a extensão final. Parece uma imagem (.jpg), mas é um programa (.exe) disfarçado." },
+                            { text: "Apresentacao.pptx", correct: false, feedback: "Arquivo de PowerPoint normal." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "O que é 'Juice Jacking' em estações de recarga de celular (Aeroportos/Shoppings)?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Roubo de energia", correct: false, feedback: "Não." },
+                            { text: "Roubo de dados via cabo USB", correct: true, feedback: "Sim! O cabo USB transmite energia E dados. Um totem de carga falso pode copiar seus dados enquanto carrega." },
+                            { text: "Um tipo de bebida energética", correct: false, feedback: "Incorreto." }
+                        ]
+                    },
+
+                    // --- CAPÍTULO 2: Redes e Wi-Fi Público ---
+                    {
+                        type: "intro",
+                        content: "Capítulo 2: Redes Hostis. Wi-Fi de graça pode sair caro. Em redes abertas, qualquer um com um software simples pode interceptar o que você está enviando."
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você está estudando numa cafeteria e conecta no Wi-Fi 'Café_Gratis'. O que é seguro fazer?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Acessar o Internet Banking", correct: false, feedback: "Perigosíssimo. Seus dados bancários podem ser interceptados em redes públicas." },
+                            { text: "Ler notícias em sites de notícias", correct: true, feedback: "Atividades que não exigem login/senha são aceitáveis. Para o resto, use o 4G/5G do celular." },
+                            { text: "Fazer login no e-mail corporativo", correct: false, feedback: "Evite logar em contas sensíveis em redes não confiáveis." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "O que é um ataque 'Evil Twin' (Gêmeo Maligno) no Wi-Fi?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Dois roteadores quebrados", correct: false, feedback: "Não." },
+                            { text: "Um hacker cria um Wi-Fi com nome igual ao oficial", correct: true, feedback: "Sim. Ele cria uma rede 'SENAC_Alunos' falsa. Você conecta achando que é a oficial, e ele rouba tudo." },
+                            { text: "Um vírus que duplica arquivos", correct: false, feedback: "Incorreto." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Como se proteger ao usar Wi-Fi público obrigatoriamente?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Usar Aba Anônima", correct: false, feedback: "Aba anônima só não salva histórico no SEU PC, não protege a rede." },
+                            { text: "Usar uma VPN (Rede Privada Virtual)", correct: true, feedback: "A VPN cria um túnel criptografado. Mesmo no Wi-Fi público, o hacker não consegue ler seus dados." },
+                            { text: "Desligar o monitor", correct: false, feedback: "Irrelevante para segurança de rede." }
+                        ]
+                    },
+
+                    // --- CAPÍTULO 3: Segurança Física e Mesa Limpa ---
+                    {
+                        type: "intro",
+                        content: "Capítulo 3: Segurança Física. De nada adianta um firewall de mil dólares se você deixa a senha anotada num post-it ou o computador desbloqueado."
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você precisa ir ao banheiro durante a aula no laboratório. O computador fica ligado. O que fazer?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Desligo o monitor", correct: false, feedback: "O PC continua ativo. Alguém pode ligar a tela e usar." },
+                            { text: "Bloqueio a tela (Windows + L)", correct: true, feedback: "Sempre bloqueie. Leva 1 segundo e impede que colegas enviem e-mails falsos em seu nome." },
+                            { text: "Peço pro colega do lado cuidar", correct: false, feedback: "A responsabilidade pela sua conta é sua, não transfira." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "O que é a política de 'Mesa Limpa' (Clean Desk)?",
+                        simulationType: "none",
+                        options: [
+                            { text: "Manter a mesa higienizada", correct: false, feedback: "Importante, mas na Cibersegurança o sentido é outro." },
+                            { text: "Não deixar documentos sensíveis à vista", correct: true, feedback: "Papéis com dados de alunos, senhas ou relatórios não devem ficar expostos quando você sai da mesa." },
+                            { text: "Ter uma mesa sem decoração", correct: false, feedback: "Não é sobre estética." }
+                        ]
+                    },
+                    {
+                        type: "quiz",
+                        question: "Você está na biblioteca estudando e resolve ir à cantina pegar um café rápido.",
+                        simulationType: "none",
+                        options: [
+                            { text: "Deixo o notebook e celular na mesa", correct: false, feedback: "Nunca deixe dispositivos desbloqueados ou sozinhos em locais públicos, mesmo que 'seja rápido'. O furto ou acesso indevido leva segundos." },
+                            { text: "Levo meus dispositivos comigo", correct: true, feedback: "A melhor prevenção. Equipamentos eletrônicos não devem ficar sem supervisão em áreas comuns." },
+                            { text: "Peço para um desconhecido olhar", correct: false, feedback: "Você não conhece a pessoa. A responsabilidade é sua." }
+                        ]
+                    }
+                ]
+            }
+        ];
+
+        // --- COMPONENTES AUXILIARES ---
+
+        const Icon = ({ name, size = 24, className }) => {
+            const ref = useRef(null);
+            useEffect(() => {
+                if (!ref.current || !window.lucide) return;
+                const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+                const iconData = window.lucide.icons[iconName];
+                if (!iconData) return;
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('width', size);
+                svg.setAttribute('height', size);
+                svg.setAttribute('viewBox', '0 0 24 24');
+                svg.setAttribute('fill', 'none');
+                svg.setAttribute('stroke', 'currentColor');
+                svg.setAttribute('stroke-width', '2');
+                svg.setAttribute('stroke-linecap', 'round');
+                svg.setAttribute('stroke-linejoin', 'round');
+                if (className) svg.setAttribute('class', className);
+                iconData.forEach(([tag, attrs]) => {
+                    const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
+                    Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, value));
+                    svg.appendChild(element);
+                });
+                ref.current.innerHTML = '';
+                ref.current.appendChild(svg);
+            }, [name, size, className]);
+            return <span ref={ref} style={{ display: 'inline-flex', verticalAlign: 'middle' }}></span>;
+        };
+
+        const EmailSimulation = ({ data }) => (
+            <div className="mb-6 border rounded-lg shadow-sm overflow-hidden bg-white text-left">
+                <div className="bg-gray-100 p-2 border-b text-xs text-gray-500 flex justify-between items-center">
+                    <span>De: <span className="text-red-600 font-mono bg-red-50 px-1 rounded">{data.from}</span></span>
+                    <Icon name="more-horizontal" size={16} />
+                </div>
+                <div className="p-4">
+                    <div className="font-bold text-sm mb-3">{data.subject}</div>
+                    <div className="text-sm text-gray-700 font-serif leading-relaxed">
+                        {data.body}
+                        <br/><br/>
+                        <div className="bg-blue-600 text-white text-center py-2 rounded cursor-pointer hover:bg-blue-700 text-xs font-bold uppercase tracking-wider">
+                            Resolver Agora
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+
+        const SmsSimulation = ({ data }) => (
+            <div className="mb-6 mx-auto w-3/4 bg-white border-8 border-gray-800 rounded-3xl overflow-hidden shadow-xl">
+                <div className="bg-gray-100 p-3 text-center border-b text-xs font-bold text-gray-500">
+                    Mensagens
+                </div>
+                <div className="p-4 bg-white min-h-[150px] flex flex-col gap-2">
+                    <div className="text-center text-xs text-gray-400 mb-2">Hoje, 10:42</div>
+                    <div className="bg-gray-200 p-3 rounded-2xl rounded-tl-none text-sm text-gray-800 self-start">
+                        <div className="font-bold text-xs mb-1 text-gray-600">{data.sender}</div>
+                        {data.message}
+                    </div>
+                </div>
+            </div>
+        );
+
+        const FileExplorerSimulation = ({ files }) => (
+            <div className="mb-6 border rounded-t-lg bg-white shadow-md overflow-hidden">
+                <div className="bg-blue-900 text-white p-2 flex items-center gap-2 text-xs">
+                    <Icon name="folder" size={14} /> F: (USB DISK)
+                </div>
+                <div className="p-2 bg-gray-100 flex gap-2 border-b text-xs text-gray-600">
+                    <span>Arquivo</span>
+                    <span>Início</span>
+                    <span>Compartilhar</span>
+                </div>
+                <div className="p-4 grid gap-2">
+                    {files.map((file, idx) => (
+                        <div key={idx} className={`flex items-center gap-3 p-2 rounded border ${file.safe ? 'border-gray-200' : 'border-red-100 bg-red-50'}`}>
+                            <div className={file.safe ? 'text-blue-500' : 'text-orange-500'}>
+                                <Icon name={file.icon} />
+                            </div>
+                            <div className="flex-1">
+                                <div className="text-sm font-bold text-gray-700">{file.name}</div>
+                                <div className="text-xs text-gray-400">Arquivo</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const InputChallenge = ({ question, onComplete }) => {
+            const [inputVal, setInputVal] = useState("");
+            const [error, setError] = useState(null);
+
+            const check = () => {
+                playSound('click');
+                if (question.validator(inputVal)) {
+                    onComplete(true, question.successFeedback);
+                } else {
+                    setError(true);
+                    playSound('wrong');
+                    setTimeout(() => setError(false), 500);
+                }
+            };
+
+            return (
+                <div className="flex flex-col gap-4">
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-800 text-sm">
+                        <div className="font-bold mb-1 flex items-center gap-2">
+                            <Icon name="info" size={16} /> Requisito:
+                        </div>
+                        {question.description}
+                    </div>
+                    
+                    <input 
+                        type="text" 
+                        value={inputVal}
+                        onChange={(e) => setInputVal(e.target.value)}
+                        placeholder="Digite sua senha aqui..."
+                        className={`
+                            w-full p-4 text-lg border-2 rounded-xl outline-none transition-all
+                            ${error ? 'border-red-500 bg-red-50 animate-bounce' : 'border-gray-300 focus:border-blue-500'}
+                        `}
+                    />
+                    
+                    {error && (
+                        <p className="text-red-500 text-sm font-bold animate-pulse">
+                            {question.failFeedback}
+                        </p>
+                    )}
+
+                    <button 
+                        onClick={check}
+                        className="w-full bg-blue-500 text-white font-bold py-4 rounded-xl btn-3d border-blue-700 mt-2"
+                    >
+                        Verificar Segurança
+                    </button>
+                </div>
+            );
+        };
+
+        // --- TELAS ---
+
+        // Timer Component para o Dashboard
+        const LifeTimer = ({ recoveryTime, onRecover }) => {
+            const [timeLeft, setTimeLeft] = useState(0);
+
+            useEffect(() => {
+                if (!recoveryTime) return;
+
+                const interval = setInterval(() => {
+                    const now = Date.now();
+                    const diff = recoveryTime - now;
+
+                    if (diff <= 0) {
+                        clearInterval(interval);
+                        onRecover();
+                    } else {
+                        setTimeLeft(Math.ceil(diff / 1000));
+                    }
+                }, 1000);
+
+                return () => clearInterval(interval);
+            }, [recoveryTime, onRecover]);
+
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+
+            return (
+                <div className="bg-red-100 text-red-600 font-bold px-3 py-1 rounded-full text-xs flex items-center gap-1 animate-pulse">
+                    <Icon name="clock" size={12} />
+                    {minutes}:{seconds < 10 ? `0${seconds}` : seconds}
+                </div>
+            );
+        };
+
+        const Dashboard = ({ startModule, stats, progressMap, startCertificate, recoveryTime, onRecover }) => {
+            // Verifica se todos os módulos estão 100% concluídos
+            const allModulesDone = courseData.every(m => (progressMap[m.id] || 0) >= m.questions.length);
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen bg-white shadow-xl flex flex-col">
+                    <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+                        <div className="flex items-center gap-2 text-red-500 font-bold">
+                            <Icon name="heart" className="fill-current" /> 
+                            {stats.hearts}
+                            {stats.hearts === 0 && <LifeTimer recoveryTime={recoveryTime} onRecover={onRecover} />}
+                        </div>
+                    </div>
+
+                    <div className="flex-1 p-6 flex flex-col items-center py-6 bg-gray-50 overflow-y-auto">
+                        <div className="text-center mb-0">
+                            <h1 className="text-2xl font-extrabold text-gray-700">Trilha CyberSenac</h1>
+                            <p className="text-gray-500">
+                                {allModulesDone ? "Missão Cumprida!" : "Complete os 3 módulos (27 lições) para seu certificado."}
+                            </p>
+                        </div>
+                        
+                        <div className="mt-4 flex flex-col items-center gap-16">
+                            {courseData.map((module, index) => {
+                                // Progresso atual do usuário neste módulo (índice da pergunta)
+                                const currentQIdx = progressMap[module.id] || 0;
+                                const totalQ = module.questions.length; // 9
+                                const isCompleted = currentQIdx >= totalQ;
+                                
+                                // Cálculo das bolinhas (Capítulos)
+                                // Capítulo 1: Perguntas 0,1,2,3 (Completo se index > 3) - Note que intro conta como passo
+                                // Ajuste: A intro é um item no array.
+                                // Cap 1: Intro(0), Q1(1), Q2(2), Q3(3) -> Total 4 itens
+                                // Cap 2: Intro(4), Q4(5), Q5(6), Q6(7) -> Total 4 itens
+                                // Cap 3: Intro(8), Q7(9), Q8(10), Q9(11) -> Total 4 itens
+                                // TOTAL ARRAY LENGTH = 12 itens por módulo
+                                
+                                // Vamos recalcular baseado no novo tamanho do array (12 itens: 3 intros + 9 perguntas)
+                                
+                                const chap1Done = currentQIdx > 3;
+                                const chap2Done = currentQIdx > 7;
+                                const chap3Done = currentQIdx >= 11;
+
+                                return (
+                                    <button
+                                        key={module.id}
+                                        onClick={() => {
+                                            playSound('click');
+                                            if (!isCompleted) startModule(module);
+                                        }}
+                                        disabled={isCompleted || stats.hearts === 0}
+                                        className={`
+                                            relative w-24 h-24 rounded-full flex items-center justify-center 
+                                            ${isCompleted ? 'bg-yellow-400 border-yellow-600' : module.color + ' border-' + module.color.replace('bg-', '') + '-700'} 
+                                            text-white shadow-lg btn-3d 
+                                            ${(!isCompleted && stats.hearts > 0) && 'hover:brightness-110'} 
+                                            ${stats.hearts === 0 && !isCompleted ? 'opacity-50 cursor-not-allowed grayscale' : ''}
+                                            transform transition
+                                        `}
+                                        style={{ marginLeft: index % 2 === 0 ? '-40px' : '40px' }}
+                                    >
+                                        {isCompleted ? <Icon name="check" size={40} /> : <Icon name={module.icon} size={40} />}
+                                        
+                                        {/* Bolinhas de Progresso (Capítulos) */}
+                                        <div className="absolute -bottom-10 flex flex-col items-center w-40 pointer-events-none">
+                                            <span className="text-xs font-bold text-gray-400 mb-1">{module.title}</span>
+                                            <div className="flex gap-2 bg-white px-2 py-1 rounded-full shadow-sm">
+                                                {/* Bolinha 1 */}
+                                                <div className={`w-3 h-3 rounded-full border border-gray-300 transition-colors duration-500 ${chap1Done ? 'bg-yellow-400 border-yellow-500' : 'bg-gray-100'}`}></div>
+                                                {/* Bolinha 2 */}
+                                                <div className={`w-3 h-3 rounded-full border border-gray-300 transition-colors duration-500 ${chap2Done ? 'bg-yellow-400 border-yellow-500' : 'bg-gray-100'}`}></div>
+                                                {/* Bolinha 3 */}
+                                                <div className={`w-3 h-3 rounded-full border border-gray-300 transition-colors duration-500 ${chap3Done ? 'bg-yellow-400 border-yellow-500' : 'bg-gray-100'}`}></div>
+                                            </div>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        
+                        {/* Botão de Certificado (Aparece ao final) */}
+                        {allModulesDone && (
+                            <div className="mt-8 w-full animate-pulse">
+                                <button 
+                                    onClick={() => { playSound('click'); startCertificate(); }}
+                                    className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-bold py-4 rounded-xl shadow-xl border-b-4 border-orange-600 flex items-center justify-center gap-2 text-lg"
+                                >
+                                    <Icon name="award" /> Resgatar Certificado
+                                </button>
+                            </div>
+                        )}
+                        
+                        {stats.hearts === 0 && (
+                            <div className="fixed bottom-0 left-0 w-full bg-red-500 text-white p-4 text-center animate-pulse-red shadow-lg z-50">
+                                <p className="font-bold">Sem vidas! Aguarde o contador.</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const CertificateScreen = ({ userName, setUserName, onGenerate, onBack }) => {
+            const [viewMode, setViewMode] = useState('input'); 
+
+            const handleGenerate = () => {
+                playSound('click');
+                if (userName.trim().length > 2) {
+                    playSound('win');
+                    setViewMode('view');
+                } else {
+                    playSound('wrong');
+                    alert("Por favor, digite seu nome completo.");
+                }
+            };
+
+            const downloadPDF = () => {
+                playSound('click');
+                const doc = new jsPDF({
+                    orientation: 'landscape',
+                    unit: 'mm',
+                    format: 'a4'
+                });
+
+                doc.setFillColor(255, 255, 255);
+                doc.rect(0, 0, 297, 210, 'F');
+                doc.setLineWidth(2);
+                doc.setDrawColor(22, 163, 74); 
+                doc.rect(10, 10, 277, 190);
+
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(40);
+                doc.setTextColor(22, 163, 74);
+                doc.text("Certificado de Conclusão", 148.5, 50, { align: "center" });
+
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(20);
+                doc.setTextColor(60, 60, 60);
+                doc.text("Certificamos que", 148.5, 80, { align: "center" });
+
+                doc.setFont("times", "italic");
+                doc.setFontSize(50);
+                doc.setTextColor(0, 0, 0);
+                doc.text(userName, 148.5, 110, { align: "center" });
+
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(16);
+                doc.setTextColor(60, 60, 60);
+                doc.text("Concluiu com êxito o treinamento de Conscientização em Cibersegurança.", 148.5, 140, { align: "center" });
+                
+                doc.setFontSize(12);
+                doc.text("Emissão: " + new Date().toLocaleDateString('pt-BR'), 148.5, 160, { align: "center" });
+
+                doc.save("Certificado_CyberSenac.pdf");
+            };
+
+            const shareCertificate = async () => {
+                playSound('click');
+                if (navigator.share) {
+                    try {
+                        await navigator.share({
+                            title: 'Certificado CyberSenac',
+                            text: `Concluí o treinamento de segurança digital! #CyberSenac`,
+                            url: window.location.href
+                        });
+                    } catch (err) { console.log(err); }
+                } else {
+                    alert("Compartilhamento não suportado neste navegador.");
+                }
+            };
+
+            if (viewMode === 'input') {
+                return (
+                    <div className="max-w-md mx-auto min-h-screen bg-white flex flex-col p-6 items-center justify-center text-center">
+                        <Icon name="award" size={80} className="text-yellow-500 mb-6" />
+                        <h2 className="text-2xl font-bold text-gray-800 mb-2">Parabéns!</h2>
+                        <p className="text-gray-500 mb-8">Você completou o treinamento. Digite seu nome para o certificado.</p>
+                        <input 
+                            type="text" 
+                            value={userName}
+                            onChange={(e) => setUserName(e.target.value)}
+                            placeholder="Seu Nome Completo"
+                            className="w-full p-4 border-2 border-gray-300 rounded-xl mb-4 text-center text-lg"
+                        />
+                        <button onClick={handleGenerate} className="w-full bg-green-500 text-white font-bold py-4 rounded-xl btn-3d border-green-700">Gerar Certificado</button>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen bg-gray-800 flex flex-col">
+                    <div className="p-4 text-white flex justify-between items-center">
+                        <button onClick={() => { playSound('click'); onBack(); }} className="text-gray-300 flex items-center gap-1"><Icon name="arrow-left" size={16}/> Voltar</button>
+                        <span className="font-bold">Certificado</span>
+                        <div className="w-8"></div>
+                    </div>
+                    <div className="flex-1 p-4 flex items-center justify-center">
+                        <div className="bg-white p-6 rounded-lg shadow-2xl w-full aspect-[1.414] flex flex-col items-center justify-center text-center border-8 border-double border-green-600 relative bg-pattern">
+                            <Icon name="shield-check" size={40} className="text-green-600 mb-2 opacity-50" />
+                            <h1 className="text-xl font-bold text-green-700 uppercase tracking-widest mb-2">Certificado</h1>
+                            <p className="text-xs text-gray-500 mb-4">Conferido a</p>
+                            <h2 className="text-2xl font-cursive text-gray-800 mb-4 px-2 border-b border-gray-300 pb-2 w-full">{userName}</h2>
+                            <p className="text-[10px] text-gray-600 leading-tight">Por completar com êxito o treinamento de<br/><strong>Boas Práticas em Cibersegurança</strong></p>
+                            <div className="mt-6 flex justify-between w-full px-4 items-end">
+                                <div className="flex flex-col items-center"><div className="w-12 h-0.5 bg-gray-400 mb-1"></div><span className="text-[8px] text-gray-400">CyberSenac</span></div>
+                                <Icon name="award" size={30} className="text-yellow-500" />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="p-6 bg-white rounded-t-3xl gap-4 flex flex-col">
+                        <button onClick={downloadPDF} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2"><Icon name="download" /> Baixar PDF</button>
+                        <button onClick={shareCertificate} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 rounded-xl flex items-center justify-center gap-2"><Icon name="share-2" /> Compartilhar</button>
+                    </div>
+                </div>
+            );
+        };
+
+        const Lesson = ({ module, startQIndex, onCompleteModule, onUpdateProgress, updateStats }) => {
+            const [currentLocalIndex, setCurrentLocalIndex] = useState(startQIndex); 
+            const [status, setStatus] = useState('waiting'); 
+            const [feedbackMsg, setFeedbackMsg] = useState('');
+
+            const currentQ = module.questions[currentLocalIndex];
+            const progress = ((currentLocalIndex) / module.questions.length) * 100;
+
+            const handleCheck = (option) => {
+                if (status !== 'waiting') return;
+                playSound('click');
+
+                if (option.correct) {
+                    setStatus('correct');
+                    playSound('correct');
+                    setFeedbackMsg(option.feedback);
+                } else {
+                    setStatus('wrong');
+                    playSound('wrong');
+                    setFeedbackMsg(option.feedback);
+                    updateStats("loseHeart");
+                }
+            };
+
+            const handleInputComplete = (success, feedback) => {
+                 if (success) {
+                    setStatus('correct');
+                    playSound('correct');
+                    setFeedbackMsg(feedback);
+                }
+            };
+
+            const handleContinue = () => {
+                playSound('click');
+                // Removemos o addXP daqui
+                // if (status === 'correct') { updateStats("addXP"); }
+
+                const nextIndex = currentLocalIndex + 1;
+
+                if (nextIndex < module.questions.length) {
+                    onUpdateProgress(module.id, nextIndex);
+                    setCurrentLocalIndex(nextIndex);
+                    setStatus('waiting');
+                    setFeedbackMsg('');
+                } else {
+                    onUpdateProgress(module.id, nextIndex); 
+                    onCompleteModule();
+                }
+            };
+
+            if (!currentQ) return null; 
+
+            if (currentQ.type === 'intro') {
+                return (
+                    <div className="max-w-md mx-auto h-screen bg-white flex flex-col justify-between">
+                         <div className="p-4 pt-12 flex flex-col items-center text-center">
+                            <Icon name={module.icon} size={80} className={`text-${module.color.replace('bg-', '')}-500 mb-6`} />
+                            <h2 className="text-2xl font-bold text-gray-800 mb-4">{module.title}</h2>
+                            <p className="text-lg text-gray-600">{currentQ.content}</p>
+                         </div>
+                         <div className="p-4 border-t">
+                            <button onClick={() => { playSound('click'); setCurrentLocalIndex(prev => prev + 1); onUpdateProgress(module.id, currentLocalIndex + 1); }} className="w-full bg-green-500 text-white font-bold py-4 rounded-xl btn-3d border-green-700 uppercase tracking-widest">
+                                Começar
+                            </button>
+                         </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="max-w-md mx-auto h-screen bg-white flex flex-col relative overflow-hidden">
+                    <div className="p-4 flex items-center gap-4">
+                        <button onClick={() => { playSound('click'); onCompleteModule(); }} className="text-gray-400 hover:text-gray-600"><Icon name="x" /></button>
+                        <div className="flex-1 h-4 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-green-500 progress-transition" style={{ width: `${progress}%` }}></div>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 pb-32">
+                        <h2 className="text-xl font-bold text-gray-700 mb-6">{currentQ.question}</h2>
+
+                        {currentQ.simulationType === 'email' && <EmailSimulation data={currentQ.emailData} />}
+                        {currentQ.simulationType === 'sms' && <SmsSimulation data={currentQ.smsData} />}
+                        {currentQ.simulationType === 'file_explorer' && <FileExplorerSimulation files={currentQ.files} />}
+
+                        {currentQ.type === 'input_challenge' ? (
+                            <InputChallenge question={currentQ} onComplete={handleInputComplete} />
+                        ) : (
+                            <div className="space-y-3">
+                                {currentQ.options.map((option, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => handleCheck(option)}
+                                        disabled={status !== 'waiting'}
+                                        className={`
+                                            w-full p-4 rounded-xl text-left font-semibold btn-3d transition-colors bg-white border-2 
+                                            ${status === 'waiting' ? 'border-gray-200 text-gray-700 hover:bg-gray-50' : 
+                                              option.correct ? 'bg-green-100 border-green-500 text-green-700' :
+                                              status === 'wrong' && !option.correct ? 'opacity-50 border-gray-200' : 'border-gray-200'}
+                                            ${status === 'wrong' && document.activeElement === event?.target ? 'bg-red-100 border-red-500 text-red-700' : ''}
+                                        `}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="border border-current w-6 h-6 rounded flex items-center justify-center text-xs opacity-50">{String.fromCharCode(65 + idx)}</div>
+                                            {option.text}
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className={`fixed bottom-0 w-full max-w-md p-4 pt-6 pb-8 border-t-2 transform transition-transform duration-300 ${status === 'waiting' ? 'translate-y-full' : 'translate-y-0'} ${status === 'correct' ? 'bg-green-100 border-green-200' : 'bg-red-100 border-red-200'}`}>
+                        <div className="flex flex-col gap-4">
+                            <div className="flex gap-4 items-start">
+                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-2xl ${status === 'correct' ? 'bg-green-500' : 'bg-red-500'}`}>
+                                    <Icon name={status === 'correct' ? 'check' : 'x'} />
+                                </div>
+                                <div>
+                                    <h3 className={`font-bold text-xl ${status === 'correct' ? 'text-green-800' : 'text-red-800'}`}>{status === 'correct' ? 'Impressionante!' : 'Cuidado...'}</h3>
+                                    <p className={`${status === 'correct' ? 'text-green-700' : 'text-red-700'} text-sm mt-1`}>{feedbackMsg}</p>
+                                </div>
+                            </div>
+                            <button onClick={handleContinue} className={`w-full py-3 rounded-xl font-bold uppercase tracking-wider btn-3d text-white shadow-md ${status === 'correct' ? 'bg-green-500 border-green-700 hover:bg-green-600' : 'bg-red-500 border-red-700 hover:bg-red-600'}`}>Continuar</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [currentScreen, setCurrentScreen] = useState('dashboard');
+            const [activeModule, setActiveModule] = useState(null);
+            
+            // Estado de progresso: Mapeia ID do Módulo -> Índice da Próxima Pergunta
+            const [progressMap, setProgressMap] = useState({ 1: 0, 2: 0, 3: 0 });
+            
+            const [userName, setUserName] = useState('');
+            const [stats, setStats] = useState({ hearts: 3 }); // Removido XP
+            const [recoveryTime, setRecoveryTime] = useState(null); 
+
+            useEffect(() => { lucide.createIcons(); }, [currentScreen]);
+
+            const startModule = (module) => {
+                if (stats.hearts <= 0) { 
+                    playSound('wrong');
+                    return; 
+                }
+                setActiveModule(module);
+                setCurrentScreen('lesson');
+            };
+
+            const handleUpdateProgress = (moduleId, newIndex) => {
+                setProgressMap(prev => ({ ...prev, [moduleId]: newIndex }));
+            };
+
+            const handleModuleClose = () => {
+                setCurrentScreen('dashboard');
+                setActiveModule(null);
+            };
+
+            const updateStats = (action) => {
+                if (action === "loseHeart") {
+                    setStats(prev => {
+                        const newHearts = prev.hearts - 1;
+                        if (newHearts <= 0) {
+                            handleModuleClose(); 
+                            setRecoveryTime(Date.now() + 2 * 60 * 1000); 
+                        }
+                        return { ...prev, hearts: newHearts };
+                    });
+                } 
+                // Removida lógica de addXP
+            };
+
+            const handleRecoverLife = () => {
+                setStats(prev => ({ ...prev, hearts: 1 })); 
+                setRecoveryTime(null);
+                playSound('win'); 
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-200 flex justify-center">
+                    {currentScreen === 'dashboard' && (
+                        <Dashboard 
+                            startModule={startModule} 
+                            stats={stats} 
+                            progressMap={progressMap} 
+                            startCertificate={() => setCurrentScreen('certificate')}
+                            recoveryTime={recoveryTime}
+                            onRecover={handleRecoverLife}
+                        />
+                    )}
+                    
+                    {currentScreen === 'lesson' && activeModule && (
+                        <Lesson 
+                            module={activeModule} 
+                            startQIndex={progressMap[activeModule.id]} 
+                            onCompleteModule={handleModuleClose} 
+                            onUpdateProgress={handleUpdateProgress}
+                            updateStats={updateStats} 
+                        />
+                    )}
+
+                    {currentScreen === 'certificate' && (
+                        <CertificateScreen 
+                            userName={userName} 
+                            setUserName={setUserName} 
+                            onBack={() => setCurrentScreen('dashboard')} 
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
